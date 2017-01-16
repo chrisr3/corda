@@ -7,8 +7,8 @@ import net.corda.core.contracts.DOLLARS
 import net.corda.core.contracts.issuedBy
 import net.corda.core.crypto.Party
 import net.corda.core.crypto.generateKeyPair
-import net.corda.core.flows.FlowException
 import net.corda.core.flows.FlowLogic
+import net.corda.core.flows.PropagatedException
 import net.corda.core.getOrThrow
 import net.corda.core.random63BitValue
 import net.corda.core.serialization.OpaqueBytes
@@ -215,14 +215,14 @@ class StateMachineManagerTests {
         assertSessionTransfers(node2,
                 node1 sent sessionInit(SendFlow::class, payload) to node2,
                 node2 sent sessionConfirm to node1,
-                node1 sent sessionEnd to node2
+                node1 sent sessionEnd() to node2
                 //There's no session end from the other flows as they're manually suspended
         )
 
         assertSessionTransfers(node3,
                 node1 sent sessionInit(SendFlow::class, payload) to node3,
                 node3 sent sessionConfirm to node1,
-                node1 sent sessionEnd to node3
+                node1 sent sessionEnd() to node3
                 //There's no session end from the other flows as they're manually suspended
         )
 
@@ -249,14 +249,14 @@ class StateMachineManagerTests {
                 node1 sent sessionInit(ReceiveThenSuspendFlow::class) to node2,
                 node2 sent sessionConfirm to node1,
                 node2 sent sessionData(node2Payload) to node1,
-                node2 sent sessionEnd to node1
+                node2 sent sessionEnd() to node1
         )
 
         assertSessionTransfers(node3,
                 node1 sent sessionInit(ReceiveThenSuspendFlow::class) to node3,
                 node3 sent sessionConfirm to node1,
                 node3 sent sessionData(node3Payload) to node1,
-                node3 sent sessionEnd to node1
+                node3 sent sessionEnd() to node1
         )
     }
 
@@ -272,7 +272,7 @@ class StateMachineManagerTests {
                 node2 sent sessionData(20L) to node1,
                 node1 sent sessionData(11L) to node2,
                 node2 sent sessionData(21L) to node1,
-                node1 sent sessionEnd to node2
+                node1 sent sessionEnd() to node2
         )
     }
 
@@ -328,15 +328,18 @@ class StateMachineManagerTests {
     }
 
     @Test
-    fun `exception thrown on other side`() {
-        node2.services.registerFlowInitiator(ReceiveThenSuspendFlow::class) { ExceptionFlow }
+    fun `PropagatedException thrown`() {
+        val exception = MyPropagatedException("Nothing useful")
+        node2.services.registerFlowInitiator(ReceiveThenSuspendFlow::class) { ExceptionFlow(exception) }
         val future = node1.services.startFlow(ReceiveThenSuspendFlow(node2.info.legalIdentity)).resultFuture
         net.runNetwork()
-        assertThatThrownBy { future.getOrThrow() }.isInstanceOf(FlowException::class.java)
+        assertThatThrownBy {
+            future.getOrThrow()
+        }.isInstanceOf(MyPropagatedException::class.java).hasMessage("Nothing useful")
         assertSessionTransfers(
                 node1 sent sessionInit(ReceiveThenSuspendFlow::class) to node2,
                 node2 sent sessionConfirm to node1,
-                node2 sent sessionEnd to node1
+                node2 sent sessionEnd(exception) to node1
         )
     }
 
@@ -361,7 +364,7 @@ class StateMachineManagerTests {
 
     private fun sessionData(payload: Any) = SessionData(0, payload)
 
-    private val sessionEnd = SessionEnd(0)
+    private fun sessionEnd(error: PropagatedException? = null) = SessionEnd(0, error)
 
     private fun assertSessionTransfers(vararg expected: SessionTransfer) {
         assertThat(sessionTransfers).containsExactly(*expected)
@@ -458,7 +461,12 @@ class StateMachineManagerTests {
         }
     }
 
-    private object ExceptionFlow : FlowLogic<Nothing>() {
-        override fun call(): Nothing = throw Exception()
+    private class ExceptionFlow(val exception : Exception) : FlowLogic<Nothing>() {
+        override fun call(): Nothing = throw exception
+    }
+
+    private class MyPropagatedException(message: String) : PropagatedException(message) {
+        override fun equals(other: Any?): Boolean = other is MyPropagatedException && other.message == this.message
+        override fun hashCode(): Int = message?.hashCode() ?: 31
     }
 }

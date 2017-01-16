@@ -14,6 +14,7 @@ import net.corda.core.crypto.Party
 import net.corda.core.crypto.commonName
 import net.corda.core.flows.FlowLogic
 import net.corda.core.flows.FlowStateMachine
+import net.corda.core.flows.PropagatedException
 import net.corda.core.flows.StateMachineRunId
 import net.corda.core.messaging.ReceivedMessage
 import net.corda.core.messaging.TopicSession
@@ -256,7 +257,7 @@ class StateMachineManager(val serviceHub: ServiceHubInternal,
             if (peerParty != null) {
                 if (message is SessionConfirm) {
                     logger.debug { "Received session confirmation but associated fiber has already terminated, so sending session end" }
-                    sendSessionMessage(peerParty, SessionEnd(message.initiatedSessionId))
+                    sendSessionMessage(peerParty, SessionEnd(message.initiatedSessionId, null))
                 } else {
                     logger.trace { "Ignoring session end message for already closed session: $message" }
                 }
@@ -330,14 +331,14 @@ class StateMachineManager(val serviceHub: ServiceHubInternal,
             processIORequest(ioRequest)
             decrementLiveFibers()
         }
-        fiber.actionOnEnd = {
+        fiber.actionOnEnd = { error: PropagatedException? ->
             try {
                 fiber.logic.progressTracker?.currentStep = ProgressTracker.DONE
                 mutex.locked {
                     stateMachines.remove(fiber)?.let { checkpointStorage.removeCheckpoint(it) }
                     notifyChangeObservers(fiber, AddOrRemove.REMOVE)
                 }
-                endAllFiberSessions(fiber)
+                endAllFiberSessions(fiber, error)
             } finally {
                 fiber.commitTransaction()
                 decrementLiveFibers()
@@ -352,12 +353,15 @@ class StateMachineManager(val serviceHub: ServiceHubInternal,
         }
     }
 
-    private fun endAllFiberSessions(fiber: FlowStateMachineImpl<*>) {
+    private fun endAllFiberSessions(fiber: FlowStateMachineImpl<*>, error: PropagatedException?) {
         openSessions.values.removeIf { session ->
             if (session.fiber == fiber) {
                 val initiatedState = session.state as? FlowSessionState.Initiated
                 if (initiatedState != null) {
-                    sendSessionMessage(initiatedState.peerParty, SessionEnd(initiatedState.peerSessionId), fiber)
+                    sendSessionMessage(
+                            initiatedState.peerParty,
+                            SessionEnd(initiatedState.peerSessionId, error),
+                            fiber)
                     recentlyClosedSessions[session.ourSessionId] = initiatedState.peerParty
                 }
                 true

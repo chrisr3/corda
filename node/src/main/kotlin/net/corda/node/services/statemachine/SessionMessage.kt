@@ -3,6 +3,7 @@ package net.corda.node.services.statemachine
 import net.corda.core.abbreviate
 import net.corda.core.crypto.Party
 import net.corda.core.flows.FlowException
+import net.corda.core.flows.PropagatedException
 import net.corda.core.utilities.UntrustworthyData
 
 interface SessionMessage
@@ -29,7 +30,7 @@ data class SessionData(override val recipientSessionId: Long, val payload: Any) 
     }
 }
 
-data class SessionEnd(override val recipientSessionId: Long) : ExistingSessionMessage
+data class SessionEnd(override val recipientSessionId: Long, val error: PropagatedException?) : ExistingSessionMessage
 
 data class ReceivedSessionMessage<out M : ExistingSessionMessage>(val sender: Party, val message: M)
 
