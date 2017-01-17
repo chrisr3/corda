@@ -227,6 +227,8 @@ class FlowStateMachineImpl<R>(override val id: StateMachineRunId,
         if (receivedMessage.message is SessionEnd) {
             openSessions.values.remove(session)
             if (receivedMessage.message.error != null) {
+                @Suppress("PLATFORM_CLASS_MAPPED_TO_KOTLIN")
+                (receivedMessage.message.error as java.lang.Throwable).fillInStackTrace()
                 throw receivedMessage.message.error
             } else {
                 throw FlowException("${session.state.sendToParty} has ended their flow but we were expecting to " +

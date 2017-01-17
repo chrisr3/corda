@@ -27,7 +27,7 @@ import net.corda.testing.node.MockNetwork
 import net.corda.testing.node.MockNetwork.MockNode
 import net.corda.testing.sequence
 import org.assertj.core.api.Assertions.assertThat
-import org.assertj.core.api.Assertions.assertThatThrownBy
+import org.assertj.core.api.Assertions.assertThatExceptionOfType
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -333,9 +333,10 @@ class StateMachineManagerTests {
         node2.services.registerFlowInitiator(ReceiveThenSuspendFlow::class) { ExceptionFlow(exception) }
         val future = node1.services.startFlow(ReceiveThenSuspendFlow(node2.info.legalIdentity)).resultFuture
         net.runNetwork()
-        assertThatThrownBy {
-            future.getOrThrow()
-        }.isInstanceOf(MyPropagatedException::class.java).hasMessage("Nothing useful")
+        assertThatExceptionOfType(MyPropagatedException::class.java)
+                .isThrownBy { future.getOrThrow() }
+                .withMessage("Nothing useful")
+                .withStackTraceContaining("ReceiveThenSuspendFlow")  // Make sure the stack trace is that of the receiving flow
         assertSessionTransfers(
                 node1 sent sessionInit(ReceiveThenSuspendFlow::class) to node2,
                 node2 sent sessionConfirm to node1,

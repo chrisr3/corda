@@ -200,4 +200,6 @@ abstract class FlowLogic<out T> {
 /**
  *
  */
-open class PropagatedException(message: String) : Exception(message)
+open class PropagatedException @JvmOverloads constructor(
+        message: String? = null,
+        cause: Throwable? = null) : Exception(message, cause)
